@@ -1,6 +1,6 @@
 /CarAccidentData/OriData/extracted_frames/**/*.jpg
-/CarAccidentData/OriData/extracted_frames/**/Icon_
-/CarAccidentData/OriData/extracted_frames.tar.gz
+/src/main/resources/CarAccidentData/OriData/extracted_frames/**/Icon_
+/src/main/resources/CarAccidentData/OriData/extracted_frames.tar.gz
 
 # Compiled class file
 *.class
