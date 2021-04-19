@@ -105,6 +105,12 @@
             <artifactId>javacv-platform</artifactId>
             <version>1.5.2</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.deeplearning4j</groupId>
+            <artifactId>deeplearning4j-zoo</artifactId>
+            <version>${dl4j-master.version}</version>
+        </dependency>
     </dependencies>
 
 
