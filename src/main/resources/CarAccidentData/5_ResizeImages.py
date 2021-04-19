@@ -14,8 +14,8 @@ install("pillow")
 
 
 
-imageWidth = 224
-imageHeight = 224
+imageWidth = 130
+imageHeight = 130
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os
