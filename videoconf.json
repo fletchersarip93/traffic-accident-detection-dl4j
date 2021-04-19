@@ -334,7 +334,7 @@
       "rnnDataFormat" : "NCW"
     }
   },
-  "iterationCount" : 150,
+  "iterationCount" : 0,
   "tbpttBackLength" : 72,
   "tbpttFwdLength" : 72,
   "trainingWorkspaceMode" : "ENABLED",
