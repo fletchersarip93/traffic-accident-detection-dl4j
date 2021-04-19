@@ -42,11 +42,11 @@ public class CNN_ViewNDArray_TrainSet {
     private static Random rng = new Random();
     private static PathLabelGenerator labelMaker = new ParentPathLabelGenerator();  //Name of folder becomes name of label
 
-    private static int width = 200; //200
-    private static int height = 200; //200
+    private static int width = 5; //200
+    private static int height = 5; //200
     private static int nChannels = 3;
 
-    private static int batchSize = 20;
+    private static int batchSize = 4;
     private static int nEpoch = 20;
     private static int seed = 123;
     private static int nClasses = 2;
@@ -75,11 +75,11 @@ public class CNN_ViewNDArray_TrainSet {
         ImageTransform show = new ShowImageTransform("Augmentation");   //This allow you to see the Augmented images
 
         List<Pair<ImageTransform, Double>> pipeline = Arrays.asList(
-                new Pair<>(hFlip, 0.5),
-                new Pair<>(rotate1, 0.5),
-                new Pair<>(rotate2, 0.5),
-                new Pair<>(rCrop, 0.1),
-                new Pair<>(show, 0.01)    // This means only 1% of the augmented image will be shown when running
+                new Pair<>(hFlip, 0.0),
+                new Pair<>(rotate1, 0.0),
+                new Pair<>(rotate2, 0.0),
+                new Pair<>(rCrop, 0.0),
+                new Pair<>(show, 1.0)    // This means only 1% of the augmented image will be shown when running
         );
 
         PipelineImageTransform transform = new PipelineImageTransform(pipeline, false);
@@ -91,12 +91,27 @@ public class CNN_ViewNDArray_TrainSet {
 
         trainRR.initialize(trainData, transform);   //Only apply augmentation on train dataset
 
+        System.out.println("IMAGE ----------------------- ");
+        System.out.println( trainRR.next() );
+        System.out.println("IMAGE ----------------------- ");
+        System.out.println( trainRR.next() );
+        System.out.println("IMAGE ----------------------- ");
+        System.out.println( trainRR.next() );
+        System.out.println("IMAGE ----------------------- ");
+        System.out.println( trainRR.next() );
+        System.out.println("IMAGE ----------------------- ");
+        System.out.println( trainRR.next() );
+        System.out.println("DONE ----------------------- ");
+
+        /*
         DataSetIterator trainIter = new RecordReaderDataSetIterator(trainRR, batchSize, 1, nClasses);
 
         DataNormalization scaler = new ImagePreProcessingScaler();   // Scale Pixel range 0 to 1.
         trainIter.setPreProcessor(scaler);
 
-        System.out.println(trainIter.next().getFeatures() );
+        */
+
+        //System.out.println(trainIter.next().getFeatures() );
 
         boolean test = true;
         while(test){
@@ -137,10 +152,10 @@ public class CNN_ViewNDArray_TrainSet {
 
         model.setListeners(new ScoreIterationListener(10));
 
-        model.fit(trainIter, nEpoch);
+        //model.fit(trainIter, nEpoch);
 
-        Evaluation evalTrain = model.evaluate(trainIter);
+        //Evaluation evalTrain = model.evaluate(trainIter);
 
-        System.out.println("Train Evaluation:\n" + evalTrain.stats());
+        //System.out.println("Train Evaluation:\n" + evalTrain.stats());
     }
 }
