@@ -1,5 +1,6 @@
 /src/main/resources/CarAccidentData/OriData/extracted_frames/**/*.jpg
 /src/main/resources/CarAccidentData/OriData/extracted_frames/**/*.mp4
+/src/main/resources/CarAccidentData/OriData/extracted_frames/**/*.removedJPG
 /src/main/resources/CarAccidentData/OriData/extracted_frames/**/Icon_
 /src/main/resources/CarAccidentData/OriData/extracted_frames.tar.gz
 /src/main/resources/CarAccidentData/OriData/videos/*.mp4
