@@ -46,7 +46,7 @@ public class CNN_ViewNDArray_TrainSet {
     private static int height = 5; //200
     private static int nChannels = 3;
 
-    private static int batchSize = 4;
+    private static int batchSize = 5;
     private static int nEpoch = 20;
     private static int seed = 123;
     private static int nClasses = 2;
