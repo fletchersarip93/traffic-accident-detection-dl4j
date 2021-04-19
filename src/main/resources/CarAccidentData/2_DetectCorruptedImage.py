@@ -20,9 +20,8 @@ for foldername in folderToUse:
                                 if filename.split(".")[-1] == "jpg":
                                         im = Image.open(f)
                                 else:
-                                        DoNothing = True #print("redundant " + foldername + "/" + filename)
+                                        print("redundant " + foldername + "/" + filename)
                         except:
-                                print(foldername + "/" + filename)
-                                #print("CORRUPTED " + foldername + "/" + filename)
+                                print("CORRUPTED " + foldername + "/" + filename)
                 else:
                         print("UNKNOWN " + filename)
