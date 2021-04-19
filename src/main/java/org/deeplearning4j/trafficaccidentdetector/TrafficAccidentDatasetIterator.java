@@ -32,7 +32,7 @@ public class TrafficAccidentDatasetIterator {
         SequenceRecordReader labelsTrain = getLabelsReader(labelDirectory, startIdx, nExamples);
 
         SequenceRecordReaderDataSetIterator sequenceIter =
-                new SequenceRecordReaderDataSetIterator(featuresTrain, labelsTrain, miniBatchSize, 2, false);
+                new SequenceRecordReaderDataSetIterator(featuresTrain, labelsTrain, miniBatchSize, 1, true);
         sequenceIter.setPreProcessor(new VideoPreProcessor());
 
         //AsyncDataSetIterator: Used to (pre-load) load data in a separate thread

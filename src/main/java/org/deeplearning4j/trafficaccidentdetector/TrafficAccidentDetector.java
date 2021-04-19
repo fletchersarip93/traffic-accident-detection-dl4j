@@ -2,10 +2,7 @@ package org.deeplearning4j.trafficaccidentdetector;
 
 import org.apache.commons.io.FileUtils;
 import org.deeplearning4j.nn.api.Model;
-import org.deeplearning4j.nn.conf.BackpropType;
-import org.deeplearning4j.nn.conf.GradientNormalization;
-import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
-import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.*;
 import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.conf.preprocessor.CnnToFeedForwardPreProcessor;
 import org.deeplearning4j.nn.conf.preprocessor.FeedForwardToRnnPreProcessor;
@@ -52,7 +49,7 @@ public class TrafficAccidentDetector {
     private static final int seed = 1234;
     private static final double learningRate = 0.0001;
     private static final double l2Coeff = 0.001;
-    private static final int truncatedBPTTLength = 20;
+    private static final int truncatedBPTTLength = 50;
     private static final int nTrainEpochs = 15;
 
     public static void main(String[] args) throws Exception {
@@ -147,15 +144,15 @@ public class TrafficAccidentDetector {
                         .activation(Activation.TANH)
                         .nIn(50)
                         .nOut(50)
-                        .weightInit(WeightInit.XAVIER)
+                        .weightInitRecurrent(WeightInit.XAVIER)
                         .updater(new AdaGrad(0.008))
                         .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
                         .gradientNormalizationThreshold(10)
                         .build())
-                .layer(new RnnOutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD)
-                        .activation(Activation.SOFTMAX)
+                .layer(new RnnOutputLayer.Builder(LossFunctions.LossFunction.XENT)
+                        .activation(Activation.SIGMOID)
                         .nIn(50)
-                        .nOut(2)    // either accident or not
+                        .nOut(1)    // either accident or not
                         .weightInit(WeightInit.XAVIER)
                         .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
                         .gradientNormalizationThreshold(10)
@@ -218,6 +215,33 @@ public class TrafficAccidentDetector {
                         "lstm1")
                 .setOutputs("rnnOutput")
                 .build();
+
+        new ComputationGraphConfiguration.GraphBuilder(resnet50Transfer.getConfiguration(),
+                new NeuralNetConfiguration.Builder(resnet50Transfer.conf()));
+//        ComputationGraph resnet50Transfer = new TransferLearning.GraphBuilder(resnet50)
+//                .fineTuneConfiguration(fineTuneConfig)
+//                .setFeatureExtractor("flatten_1")
+//                .addLayer("lstm1", new LSTM.Builder()
+//                                .activation(Activation.TANH)
+//                                .nIn(1000)
+//                                .nOut(100)
+//                                .weightInit(WeightInit.XAVIER)
+//                                .updater(new AdaGrad(0.008))
+//                                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+//                                .gradientNormalizationThreshold(10)
+//                                .build(),
+//                        new FeedForwardToRnnPreProcessor(),
+//                        "fc1000")
+//                .addLayer("rnnOutput", new RnnOutputLayer.Builder(LossFunctions.LossFunction.XENT)
+//                                .activation(Activation.SIGMOID)
+//                                .nIn(100)
+//                                .nOut(1)    // either an accident or not
+//                                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+//                                .gradientNormalizationThreshold(10)
+//                                .build(),
+//                        "lstm1")
+//                .setOutputs("rnnOutput")
+//                .build();
         System.out.println(resnet50Transfer.summary());
 
         return resnet50Transfer;
@@ -231,14 +255,13 @@ public class TrafficAccidentDetector {
         Evaluation evaluation = new Evaluation(labelMap);
 
         DataSetIterator testData = trafficAccidentDatasetIterator.getDataSetIterator(outputDirectory, outputLabelDirectory, testStartIdx, nExamples, miniBatchSize, 467);
-        INDArray output = net.output(testData, false);
-        System.out.println(output);
-//        while(testData.hasNext()) {
-//            DataSet dsTest = testData.next();
-//            INDArray predicted = net.output(dsTest.getFeatures(), false);
-//            System.out.println(predicted);
-//            evaluation.evalTimeSeries(dsTest.getLabels(), predicted);
-//        }
+
+        while(testData.hasNext()) {
+            DataSet dsTest = testData.next();
+            INDArray predicted = net.output(dsTest.getFeatures(), false);
+            System.out.println(predicted);
+            evaluation.evalTimeSeries(dsTest.getLabels(), predicted);
+        }
 
         System.out.println(evaluation.stats());
     }
