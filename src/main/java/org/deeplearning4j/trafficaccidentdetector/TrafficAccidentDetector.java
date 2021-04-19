@@ -1,19 +1,11 @@
 package org.deeplearning4j.trafficaccidentdetector;
 
 import org.apache.commons.io.FileUtils;
-import org.datavec.api.conf.Configuration;
-import org.datavec.api.records.reader.SequenceRecordReader;
-import org.datavec.api.records.reader.impl.csv.CSVSequenceRecordReader;
-import org.datavec.api.split.InputSplit;
-import org.datavec.api.split.NumberedFileInputSplit;
-import org.datavec.codec.reader.NativeCodecRecordReader;
-import org.deeplearning4j.datasets.datavec.SequenceRecordReaderDataSetIterator;
 import org.deeplearning4j.nn.api.Model;
 import org.deeplearning4j.nn.conf.BackpropType;
 import org.deeplearning4j.nn.conf.GradientNormalization;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
-import org.deeplearning4j.nn.conf.distribution.NormalDistribution;
 import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.conf.preprocessor.CnnToFeedForwardPreProcessor;
 import org.deeplearning4j.nn.conf.preprocessor.FeedForwardToRnnPreProcessor;
@@ -25,45 +17,165 @@ import org.deeplearning4j.nn.transferlearning.TransferLearning;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.deeplearning4j.zoo.ZooModel;
+import org.deeplearning4j.zoo.model.ResNet50;
 import org.nd4j.common.io.ClassPathResource;
 import org.nd4j.evaluation.classification.Evaluation;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
-import org.nd4j.linalg.dataset.AsyncDataSetIterator;
 import org.nd4j.linalg.dataset.DataSet;
-import org.nd4j.linalg.dataset.api.DataSetPreProcessor;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.learning.config.AdaGrad;
-import org.nd4j.linalg.learning.config.Nesterovs;
+import org.nd4j.linalg.learning.config.Adam;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
-import org.deeplearning4j.zoo.model.ResNet50;
 
-import javax.swing.plaf.basic.BasicInternalFrameTitlePane;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class TrafficAccidentDetector {
 
-    public static final int N_VIDEOS = 500; // TODO: to be determined
+    private static final int trainMaxIndex = 2;
+    private static final int testMaxIndex = 4;
+
     public static final int V_WIDTH = 224;
     public static final int V_HEIGHT = 224;
-    public static final int V_NFRAMES = 50; // TODO: to be determined, may be computed along the way
+    public static final int nChannels = 3;
 
     // Note that you will need to run with at least 7G off heap memory
     // if you want to keep this batchsize and train the nn config specified
-    private static final int miniBatchSize = 2;
+    private static final int miniBatchSize = 1;
     private static final int seed = 1234;
-    private static final double learningRate = 0.04;
+    private static final double learningRate = 0.0001;
+    private static final double l2Coeff = 0.001;
+    private static final int truncatedBPTTLength = 20;
+    private static final int nTrainEpochs = 15;
 
     public static void main(String[] args) throws Exception {
-        String dataDirectory = new ClassPathResource("CarAccidentData/OriData/videos").getPath();
-        String labelDirectory = new ClassPathResource("CarAccidentData/OriData/videos_labels").getPath();
+        String dataDirectory = "src/main/resources/CarAccidentData/OriData/videos/";
+        String labelDirectory = "src/main/resources/CarAccidentData/OriData/videos_labels/";
 
-        //Set up network architecture:
+        MultiLayerNetwork net = (MultiLayerNetwork) getFromScratchModel();
+//        ComputationGraph net = (ComputationGraph) getTransferLearningModel();
+
+        //Conduct learning
+        System.out.println("Starting training...");
+        net.setListeners(new ScoreIterationListener(1));
+
+        TrafficAccidentDatasetIterator trafficAccidentDatasetIterator = new TrafficAccidentDatasetIterator(V_WIDTH, V_HEIGHT);
+
+//        List<Integer> trainingVideoIndexes = new ArrayList<>();
+//        for (int i = 0; i < nTrainEpochs; i++) {
+//            // loop over the training videos
+//            for (Integer trainingVideoIndex : trainingVideoIndexes) {
+//                int nFrames = 0; // TODO: get this video's number of frames
+//                trafficAccidentDatasetIterator.getDataSetIterator(dataDirectory, labelDirectory, trainingVideoIndex, 1, 1, nFrames);
+//            }
+//        }
+
+        for (int i = 0; i < nTrainEpochs; i++) {
+            DataSetIterator trainData = trafficAccidentDatasetIterator.getDataSetIterator(dataDirectory, labelDirectory, 0, trainMaxIndex+1, miniBatchSize, 467);
+            while(trainData.hasNext()) {
+                System.out.println("@@@next batch");
+                net.fit(trainData.next());
+            }
+            Nd4j.saveBinary(net.params(),new File("videomodel.bin"));
+            FileUtils.writeStringToFile(new File("videoconf.json"), net.conf().toJson(), (Charset) null);
+            System.out.println("Epoch " + i + " complete");
+
+            //Evaluate classification performance:
+            evaluatePerformance(trafficAccidentDatasetIterator, net, trainMaxIndex+1, testMaxIndex-trainMaxIndex, dataDirectory, labelDirectory, miniBatchSize);
+        }
+    }
+
+    private static Model getFromScratchModel() {
+        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+                .seed(seed)
+                .l2(l2Coeff) //l2 regularization on all layers
+                .updater(new Adam(learningRate))
+                .list()
+                .layer(new ConvolutionLayer.Builder(3, 3)
+                        .nIn(3) //3 channels: RGB
+                        .nOut(30)
+                        .stride(1, 1)
+                        .padding(1, 1)
+                        .activation(Activation.RELU)
+                        .weightInit(WeightInit.RELU)
+                        .build())   //Output: (224-3+2)/1+1 = 224 -> 224*224*30
+                .layer(new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
+                        .kernelSize(2, 2)
+                        .stride(2, 2)
+                        .build())   //(224-2+0)/2+1 = 112 -> 112*112*30
+                .layer(new ConvolutionLayer.Builder(3, 3)
+                        .nIn(30)
+                        .nOut(10)
+                        .stride(1, 1)
+                        .padding(1, 1)
+                        .activation(Activation.RELU)
+                        .weightInit(WeightInit.RELU)
+                        .build())   //Output: (112-3+2)/1+1 = 112 -> 112*112*10
+                .layer(new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
+                        .kernelSize(2, 2)
+                        .stride(2, 2)
+                        .build()) //Output: (112-2+0)/2+1 = 56 -> 56*56*10 = 31360
+                .layer(new ConvolutionLayer.Builder(3, 3)
+                        .nIn(10)
+                        .nOut(5)
+                        .stride(1, 1)
+                        .padding(1, 1)
+                        .activation(Activation.RELU)
+                        .weightInit(WeightInit.RELU)
+                        .build())   //Output: (56-3+2)/1+1 = 56 -> 56*56*5
+                .layer(new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
+                        .kernelSize(2, 2)
+                        .stride(2, 2)
+                        .build()) //Output: (56-2+0)/2+1 = 56 -> 28*28*5 = 3920
+                .layer(new DenseLayer.Builder()
+                        .nIn(3920)
+                        .nOut(50)
+                        .activation(Activation.RELU)
+                        .weightInit(WeightInit.RELU)
+                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                        .gradientNormalizationThreshold(10)
+                        .updater(new AdaGrad(0.01))
+                        .build())
+                .layer(new LSTM.Builder()
+                        .activation(Activation.TANH)
+                        .nIn(50)
+                        .nOut(50)
+                        .weightInit(WeightInit.XAVIER)
+                        .updater(new AdaGrad(0.008))
+                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                        .gradientNormalizationThreshold(10)
+                        .build())
+                .layer(new RnnOutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD)
+                        .activation(Activation.SOFTMAX)
+                        .nIn(50)
+                        .nOut(2)    // either accident or not
+                        .weightInit(WeightInit.XAVIER)
+                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                        .gradientNormalizationThreshold(10)
+                        .build())
+                .inputPreProcessor(0, new RnnToCnnPreProcessor(V_HEIGHT, V_WIDTH, nChannels))
+                .inputPreProcessor(6, new CnnToFeedForwardPreProcessor(28, 28, 5))
+                .inputPreProcessor(7, new FeedForwardToRnnPreProcessor())
+                .backpropType(BackpropType.TruncatedBPTT)
+                .tBPTTForwardLength(truncatedBPTTLength)
+                .tBPTTBackwardLength(truncatedBPTTLength)
+                .build();
+
+        MultiLayerNetwork model = new MultiLayerNetwork(conf);
+        model.init();
+        System.out.println(model.summary());
+
+        return model;
+    }
+
+    private static Model getTransferLearningModel() throws IOException {
         // use ResNet50
         ZooModel zooModel = ResNet50.builder().build();
         ComputationGraph resnet50 = (ComputationGraph) zooModel.initPretrained();
@@ -78,186 +190,57 @@ public class TrafficAccidentDetector {
                 .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
                 .gradientNormalizationThreshold(10)
                 .backpropType(BackpropType.TruncatedBPTT)
-                .tbpttFwdLength(V_NFRAMES / 5)
-                .tbpttBackLength(V_NFRAMES / 5)
+                .tbpttFwdLength(truncatedBPTTLength)
+                .tbpttBackLength(truncatedBPTTLength)
                 .build();
 
         ComputationGraph resnet50Transfer = new TransferLearning.GraphBuilder(resnet50)
                 .fineTuneConfiguration(fineTuneConfig)
                 .setFeatureExtractor("flatten_1")
                 .addLayer("lstm1", new LSTM.Builder()
-                        .activation(Activation.TANH)
-                        .nIn(1000)
-                        .nOut(100)
-                        .weightInit(WeightInit.XAVIER)
-                        .updater(new AdaGrad(0.008))
-                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
-                        .gradientNormalizationThreshold(10)
-                        .build(),
+                                .activation(Activation.TANH)
+                                .nIn(1000)
+                                .nOut(100)
+                                .weightInit(WeightInit.XAVIER)
+                                .updater(new AdaGrad(0.008))
+                                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                                .gradientNormalizationThreshold(10)
+                                .build(),
                         new FeedForwardToRnnPreProcessor(),
                         "fc1000")
                 .addLayer("rnnOutput", new RnnOutputLayer.Builder(LossFunctions.LossFunction.XENT)
-                        .activation(Activation.SIGMOID)
-                        .nIn(100)
-                        .nOut(1)    // either an accident or not
-                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
-                        .gradientNormalizationThreshold(10)
-                        .build())
+                                .activation(Activation.SIGMOID)
+                                .nIn(100)
+                                .nOut(1)    // either an accident or not
+                                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                                .gradientNormalizationThreshold(10)
+                                .build(),
+                        "lstm1")
                 .setOutputs("rnnOutput")
                 .build();
         System.out.println(resnet50Transfer.summary());
-//
-//
-//
-//
-//        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
-//                .seed(12345)
-//                .l2(0.001) //l2 regularization on all layers
-//                .updater(new AdaGrad(0.04))
-//                .list()
-//                .layer(new ConvolutionLayer.Builder(10, 10)
-//                        .nIn(3) //3 channels: RGB
-//                        .nOut(30)
-//                        .stride(4, 4)
-//                        .activation(Activation.RELU)
-//                        .weightInit(WeightInit.RELU)
-//                        .build())   //Output: (130-10+0)/4+1 = 31 -> 31*31*30
-//                .layer(new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
-//                        .kernelSize(3, 3)
-//                        .stride(2, 2).build())   //(31-3+0)/2+1 = 15
-//                .layer(new ConvolutionLayer.Builder(3, 3)
-//                        .nIn(30)
-//                        .nOut(10)
-//                        .stride(2, 2)
-//                        .activation(Activation.RELU)
-//                        .weightInit(WeightInit.RELU)
-//                        .build())   //Output: (15-3+0)/2+1 = 7 -> 7*7*10 = 490
-//                .layer(new DenseLayer.Builder()
-//                        .activation(Activation.RELU)
-//                        .nIn(490)
-//                        .nOut(50)
-//                        .weightInit(WeightInit.RELU)
-//                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
-//                        .gradientNormalizationThreshold(10)
-//                        .updater(new AdaGrad(0.01))
-//                        .build())
-//                .layer(new LSTM.Builder()
-//                        .activation(Activation.TANH)
-//                        .nIn(50)
-//                        .nOut(50)
-//                        .weightInit(WeightInit.XAVIER)
-//                        .updater(new AdaGrad(0.008))
-//                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
-//                        .gradientNormalizationThreshold(10)
-//                        .build())
-//                .layer(new RnnOutputLayer.Builder(LossFunctions.LossFunction.MCXENT)
-//                        .activation(Activation.SOFTMAX)
-//                        .nIn(50)
-//                        .nOut(4)    //4 possible shapes: circle, square, arc, line
-//                        .weightInit(WeightInit.XAVIER)
-//                        .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
-//                        .gradientNormalizationThreshold(10)
-//                        .build())
-//                .inputPreProcessor(0, new RnnToCnnPreProcessor(V_HEIGHT, V_WIDTH, 3))
-//                .inputPreProcessor(3, new CnnToFeedForwardPreProcessor(7, 7, 10))
-//                .inputPreProcessor(4, new FeedForwardToRnnPreProcessor())
-//                .backpropType(BackpropType.TruncatedBPTT)
-//                .tBPTTForwardLength(V_NFRAMES / 5)
-//                .tBPTTBackwardLength(V_NFRAMES / 5)
-//                .build();
-//
-//        MultiLayerNetwork net = new MultiLayerNetwork(conf);
-//        net.init();
-//
-//        // summary of layer and parameters
-//        System.out.println(net.summary());
-//
-//        int testStartIdx = (int) (0.9 * N_VIDEOS);  //90% in train, 10% in test
-//        int nTest = N_VIDEOS - testStartIdx;
-//
-//        //Conduct learning
-//        System.out.println("Starting training...");
-//        net.setListeners(new ScoreIterationListener(1));
-//
-//        int nTrainEpochs = 15;
-//        for (int i = 0; i < nTrainEpochs; i++) {
-//            DataSetIterator trainData = getDataSetIterator(dataDirectory, 0, testStartIdx - 1, miniBatchSize);
-//            while(trainData.hasNext())
-//                net.fit(trainData.next());
-//            Nd4j.saveBinary(net.params(),new File("videomodel.bin"));
-//            FileUtils.writeStringToFile(new File("videoconf.json"), conf.toJson(), (Charset) null);
-//            System.out.println("Epoch " + i + " complete");
-//
-//            //Evaluate classification performance:
-//            evaluatePerformance(net,testStartIdx,nTest,dataDirectory);
-//        }
+
+        return resnet50Transfer;
     }
 
-
-    private static void evaluatePerformance(MultiLayerNetwork net, int testStartIdx, int nExamples, String outputDirectory) throws Exception {
+    private static void evaluatePerformance(TrafficAccidentDatasetIterator trafficAccidentDatasetIterator, MultiLayerNetwork net, int testStartIdx, int nExamples, String outputDirectory, String outputLabelDirectory, int miniBatchSize) throws Exception {
         //Assuming here that the full test data set doesn't fit in memory -> load 10 examples at a time
         Map<Integer, String> labelMap = new HashMap<>();
-        labelMap.put(0, "circle");
-        labelMap.put(1, "square");
-        labelMap.put(2, "arc");
-        labelMap.put(3, "line");
+        labelMap.put(0, "no_accident");
+        labelMap.put(1, "accident");
         Evaluation evaluation = new Evaluation(labelMap);
 
-        DataSetIterator testData = getDataSetIterator(outputDirectory, testStartIdx, nExamples, 10);
-        while(testData.hasNext()) {
-            DataSet dsTest = testData.next();
-            INDArray predicted = net.output(dsTest.getFeatures(), false);
-            INDArray actual = dsTest.getLabels();
-            evaluation.evalTimeSeries(actual, predicted);
-        }
+        DataSetIterator testData = trafficAccidentDatasetIterator.getDataSetIterator(outputDirectory, outputLabelDirectory, testStartIdx, nExamples, miniBatchSize, 467);
+        INDArray output = net.output(testData, false);
+        System.out.println(output);
+//        while(testData.hasNext()) {
+//            DataSet dsTest = testData.next();
+//            INDArray predicted = net.output(dsTest.getFeatures(), false);
+//            System.out.println(predicted);
+//            evaluation.evalTimeSeries(dsTest.getLabels(), predicted);
+//        }
 
         System.out.println(evaluation.stats());
-    }
-
-    private static DataSetIterator getDataSetIterator(String dataDirectory, int startIdx, int nExamples, int miniBatchSize) throws Exception {
-        //Here, our data and labels are in separate files
-        //videos: shapes_0.mp4, shapes_1.mp4, etc
-        //labels: shapes_0.txt, shapes_1.txt, etc. One time step per line
-
-        SequenceRecordReader featuresTrain = getFeaturesReader(dataDirectory, startIdx, nExamples);
-        SequenceRecordReader labelsTrain = getLabelsReader(dataDirectory, startIdx, nExamples);
-
-        SequenceRecordReaderDataSetIterator sequenceIter =
-                new SequenceRecordReaderDataSetIterator(featuresTrain, labelsTrain, miniBatchSize, 4, false);
-        sequenceIter.setPreProcessor(new VideoPreProcessor());
-
-        //AsyncDataSetIterator: Used to (pre-load) load data in a separate thread
-        return new AsyncDataSetIterator(sequenceIter,1);
-    }
-
-    private static SequenceRecordReader getFeaturesReader(String path, int startIdx, int num) throws IOException, InterruptedException {
-        //InputSplit is used here to define what the file paths look like
-        InputSplit is = new NumberedFileInputSplit(path + "shapes_%d.mp4", startIdx, startIdx + num - 1);
-
-        Configuration conf = new Configuration();
-        conf.set(NativeCodecRecordReader.RAVEL, "true");
-        conf.set(NativeCodecRecordReader.START_FRAME, "0");
-        conf.set(NativeCodecRecordReader.TOTAL_FRAMES, String.valueOf(V_NFRAMES));
-        conf.set(NativeCodecRecordReader.ROWS, String.valueOf(V_WIDTH));
-        conf.set(NativeCodecRecordReader.COLUMNS, String.valueOf(V_HEIGHT));
-        NativeCodecRecordReader crr = new NativeCodecRecordReader();
-        crr.initialize(conf, is);
-        return crr;
-
-    }
-
-    private static SequenceRecordReader getLabelsReader(String path, int startIdx, int num) throws Exception {
-        InputSplit isLabels = new NumberedFileInputSplit(path + "shapes_%d.txt", startIdx, startIdx + num - 1);
-        CSVSequenceRecordReader csvSeq = new CSVSequenceRecordReader();
-        csvSeq.initialize(isLabels);
-        return csvSeq;
-    }
-
-    private static class VideoPreProcessor implements DataSetPreProcessor {
-        @Override
-        public void preProcess(org.nd4j.linalg.dataset.api.DataSet toPreProcess) {
-            toPreProcess.getFeatures().divi(255);  //[0,255] -> [0,1] for input pixel values
-        }
     }
 
 }
