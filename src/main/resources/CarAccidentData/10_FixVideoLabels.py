@@ -3,7 +3,7 @@ import os
 from natsort import natsorted, ns
 
 inVideoDir = "ProcessedData/videos/"
-inLabelDir = "OriData/videos_labels/"
+inLabelDir = "ProcessedData/videos_labels2/"
 
 videoFiles = [vid for vid in os.listdir(inVideoDir) if vid.endswith(".mp4")]
 videoFiles = natsorted(videoFiles)

@@ -1,3 +1,5 @@
+/src/main/resources/CarAccidentData/ProcessedData/extracted_frames2/**/*.jpg
+/src/main/resources/CarAccidentData/ProcessedData/videos_labels2/*.csv
 /src/main/resources/CarAccidentData/ProcessedData/extracted_frames/**/*.jpg
 /src/main/resources/CarAccidentData/ProcessedData/extracted_frames/**/*.mp4
 /src/main/resources/CarAccidentData/ProcessedData/videos/*.mp4
