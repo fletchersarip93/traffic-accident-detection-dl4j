@@ -7,9 +7,10 @@ import org.datavec.api.records.reader.impl.csv.CSVSequenceRecordReader;
 import org.datavec.api.split.InputSplit;
 import org.datavec.api.split.NumberedFileInputSplit;
 import org.datavec.codec.reader.NativeCodecRecordReader;        //You need to modify pom.xml to include dependency (groupID "org.bytedeco", artifactID "javacv-platform") and (groupID "org.datavec", artifactID "datavec-data-codec")
+import org.deeplearning4j.core.storage.StatsStorage;
 import org.deeplearning4j.datasets.datavec.SequenceRecordReaderDataSetIterator;
 import org.deeplearning4j.examples.utils.DownloaderUtility;     //You need the file inside /src/main/java/org/deeplearning4j/examples/utils/DownloaderUtility
-                                                                //Notice the org.deeplearning4j is equal to org/deeplearning4j. examples.utils is equal to examples/utils
+//Notice the org.deeplearning4j is equal to org/deeplearning4j. examples.utils is equal to examples/utils
 import org.deeplearning4j.nn.conf.BackpropType;
 import org.deeplearning4j.nn.conf.GradientNormalization;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
@@ -21,6 +22,9 @@ import org.deeplearning4j.nn.conf.preprocessor.RnnToCnnPreProcessor;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
+import org.deeplearning4j.ui.api.UIServer;
+import org.deeplearning4j.ui.model.stats.StatsListener;
+import org.deeplearning4j.ui.model.storage.InMemoryStatsStorage;
 import org.nd4j.evaluation.classification.Evaluation;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
@@ -52,12 +56,13 @@ import java.util.Map;
  * *******************************************************
  * @author Alex Black
  */
-public class VideoFrameClassifier {
+public class VideoFrameClassifierModified {
 
-    public static final int N_VIDEOS = 500;
+    public static final int N_VIDEOS = 6;     //155  TODO - this is just for test
     public static final int V_WIDTH = 130;
     public static final int V_HEIGHT = 130;
-    public static final int V_NFRAMES = 150;
+    public static final int V_NFRAMES = 159;    //TODO - this only works for the first video
+    public static final int numLabels = 2;      //Only Accident or No Accident
 
     public static void main(String[] args) throws Exception {
 
@@ -65,8 +70,8 @@ public class VideoFrameClassifier {
         // if you want to keep this batchsize and train the nn config specified
         int miniBatchSize = 2;
 
-        //String dataDirectory = "CarAccidentData/OriData/videos/";
-        String dataDirectory = DownloaderUtility.VIDEOEXAMPLE.Download() + "/videoshapesexample/";
+        String dataDirectory = "src/main/resources/CarAccidentData/zProperData/";
+        //String dataDirectory = DownloaderUtility.VIDEOEXAMPLE.Download() + "/videoshapesexample/";
 
         //Set up network architecture:
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
@@ -112,7 +117,7 @@ public class VideoFrameClassifier {
                 .layer(new RnnOutputLayer.Builder(LossFunctions.LossFunction.MCXENT)
                         .activation(Activation.SOFTMAX)
                         .nIn(50)
-                        .nOut(4)    //4 possible shapes: circle, square, arc, line
+                        .nOut(numLabels)    //2 possible condition: accident or not
                         .weightInit(WeightInit.XAVIER)
                         .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
                         .gradientNormalizationThreshold(10)
@@ -130,6 +135,12 @@ public class VideoFrameClassifier {
 
         // summary of layer and parameters
         System.out.println(net.summary());
+
+
+        StatsStorage storage = new InMemoryStatsStorage();
+        UIServer server = UIServer.getInstance();
+        server.attach(storage);
+        net.setListeners(new StatsListener(storage, 1));
 
         int testStartIdx = (int) (0.9 * N_VIDEOS);  //90% in train, 10% in test
         int nTest = N_VIDEOS - testStartIdx;
@@ -156,10 +167,8 @@ public class VideoFrameClassifier {
     private static void evaluatePerformance(MultiLayerNetwork net, int testStartIdx, int nExamples, String outputDirectory) throws Exception {
         //Assuming here that the full test data set doesn't fit in memory -> load 10 examples at a time
         Map<Integer, String> labelMap = new HashMap<>();
-        labelMap.put(0, "circle");
-        labelMap.put(1, "square");
-        labelMap.put(2, "arc");
-        labelMap.put(3, "line");
+        labelMap.put(0, "NoAccident");
+        labelMap.put(1, "Accident");
         Evaluation evaluation = new Evaluation(labelMap);
 
         DataSetIterator testData = getDataSetIterator(outputDirectory, testStartIdx, nExamples, 10);
@@ -182,7 +191,7 @@ public class VideoFrameClassifier {
         SequenceRecordReader labelsTrain = getLabelsReader(dataDirectory, startIdx, nExamples);
 
         SequenceRecordReaderDataSetIterator sequenceIter =
-                new SequenceRecordReaderDataSetIterator(featuresTrain, labelsTrain, miniBatchSize, 4, false);
+                new SequenceRecordReaderDataSetIterator(featuresTrain, labelsTrain, miniBatchSize, numLabels, false);
         sequenceIter.setPreProcessor(new VideoPreProcessor());
 
         //AsyncDataSetIterator: Used to (pre-load) load data in a separate thread
@@ -191,7 +200,7 @@ public class VideoFrameClassifier {
 
     private static SequenceRecordReader getFeaturesReader(String path, int startIdx, int num) throws IOException, InterruptedException {
         //InputSplit is used here to define what the file paths look like
-        InputSplit is = new NumberedFileInputSplit(path + "shapes_%d.mp4", startIdx, startIdx + num - 1);
+        InputSplit is = new NumberedFileInputSplit(path + "%d.mp4", startIdx, startIdx + num - 1);
 
         Configuration conf = new Configuration();
         conf.set(NativeCodecRecordReader.RAVEL, "true");
@@ -206,7 +215,7 @@ public class VideoFrameClassifier {
     }
 
     private static SequenceRecordReader getLabelsReader(String path, int startIdx, int num) throws Exception {
-        InputSplit isLabels = new NumberedFileInputSplit(path + "shapes_%d.txt", startIdx, startIdx + num - 1);
+        InputSplit isLabels = new NumberedFileInputSplit(path + "%d.csv", startIdx, startIdx + num - 1);
         CSVSequenceRecordReader csvSeq = new CSVSequenceRecordReader();
         csvSeq.initialize(isLabels);
         return csvSeq;
