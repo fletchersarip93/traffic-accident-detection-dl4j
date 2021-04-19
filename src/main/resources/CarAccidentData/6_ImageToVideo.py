@@ -19,7 +19,8 @@ import cv2
 folderToUse = np.unique( pd.read_csv("OriData/lable.csv", dtype={"DirID":object})["DirID"].values )
 print(folderToUse)
 
-directory = "OriData/extracted_frames/"
+#directory = "OriData/extracted_frames/"
+directory = "ProcessedData/extracted_frames/"
 
 videoFPS = 30
 
