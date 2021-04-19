@@ -13,6 +13,9 @@
 /.idea/
 /target/
 
+videoconf.json
+videomodel.bin
+
 # Compiled class file
 *.class
 

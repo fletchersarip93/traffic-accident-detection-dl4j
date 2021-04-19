@@ -58,10 +58,10 @@ import java.util.Map;
  */
 public class VideoFrameClassifierModified2 {
 
-    public static final int N_VIDEOS = 6;     //155  TODO - this is just for test
+    public static final int N_VIDEOS = 20;     //155  TODO - this is just for test
     public static final int V_WIDTH = 130;
     public static final int V_HEIGHT = 130;
-    public static final int V_NFRAMES = 360;    //TODO - this only works for the first video
+    public static final int V_NFRAMES = 361;    //TODO - this only works for the first video
     public static final int numLabels = 2;      //Only Accident or No Accident
 
     public static void main(String[] args) throws Exception {
@@ -140,14 +140,14 @@ public class VideoFrameClassifierModified2 {
         StatsStorage storage = new InMemoryStatsStorage();
         UIServer server = UIServer.getInstance();
         server.attach(storage);
-        net.setListeners(new StatsListener(storage, 1));
+        net.setListeners(new StatsListener(storage, 10));
 
         int testStartIdx = (int) (0.9 * N_VIDEOS);  //90% in train, 10% in test
         int nTest = N_VIDEOS - testStartIdx;
 
         //Conduct learning
         System.out.println("Starting training...");
-        net.setListeners(new ScoreIterationListener(1));
+        net.setListeners(new ScoreIterationListener(10));
 
         int nTrainEpochs = 15;
         for (int i = 0; i < nTrainEpochs; i++) {
