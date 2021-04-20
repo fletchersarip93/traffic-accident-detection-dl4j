@@ -9,6 +9,7 @@ import org.datavec.api.split.InputSplit;
 import org.datavec.image.loader.BaseImageLoader;
 import org.datavec.image.recordreader.ImageRecordReader;
 import org.datavec.image.transform.*;
+import org.deeplearning4j.core.storage.StatsStorage;
 import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
 import org.deeplearning4j.nn.conf.BackpropType;
 import org.deeplearning4j.nn.conf.ComputationGraphConfiguration;
@@ -23,6 +24,10 @@ import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
+import org.deeplearning4j.ui.api.UIServer;
+import org.deeplearning4j.ui.model.stats.StatsListener;
+import org.deeplearning4j.ui.model.storage.InMemoryStatsStorage;
+import org.deeplearning4j.util.ModelSerializer;
 import org.nd4j.common.io.ClassPathResource;
 import org.nd4j.common.primitives.Pair;
 import org.nd4j.evaluation.classification.Evaluation;
@@ -53,6 +58,7 @@ public class AvNA {
     private static int seed = 123;
     private static int nClasses = 2;
     private static double learningRate = 0.001;
+    private static ComputationGraph model = null;
 
     public static void main(String[] args) throws Exception {
         File inputFile = new ClassPathResource("CarAccidentData/AvNA").getFile();
@@ -103,49 +109,97 @@ public class AvNA {
         trainIter.setPreProcessor(scaler);
         testIter.setPreProcessor(scaler);
 
-        ComputationGraphConfiguration conf = new NeuralNetConfiguration.Builder()
-                .seed(seed)
-                .updater(new Adam(learningRate))
-                .weightInit(WeightInit.XAVIER)
-                .graphBuilder()
-                .setInputTypes(InputType.convolutional(height, width, nChannels))   //This line is used so you no need to specify .nIn() in every layer
-                .addInputs("input")
-                .addLayer("L1",new ConvolutionLayer.Builder()
-                        .nIn(nChannels)
-                        .nOut(16)    //Number of Filters
-                        .activation(Activation.RELU)
-                        .kernelSize(3, 3)
-                        .stride(1, 1)
-                        .build(), "input")
-                .addLayer( "L2", new SubsamplingLayer.Builder()
-                        .kernelSize(2, 2)
-                        .stride(2, 2)
-                        .poolingType(SubsamplingLayer.PoolingType.MAX)
-                        .build(), "L1")
-                .addLayer( "L3", new DenseLayer.Builder()
-                        .nOut(50)
-                        .activation(Activation.RELU)
-                        .build(), "L2")
-                .addLayer( "L4", new OutputLayer.Builder()
-                        .nOut(nClasses)
-                        .activation(Activation.SOFTMAX)
-                        .lossFunction(LossFunctions.LossFunction.MCXENT)
-                        .build(), "L3")
-                .setOutputs("L4")
-                .backpropType(BackpropType.Standard)
-                .build();
+        boolean modelExist = false;
+        File modelSave = null;
+        try {
+            modelSave = new ClassPathResource("/AvNA/trained_AvNA_model.zip").getFile();
+            modelExist = true;
+        } catch (Exception e) {
+            System.out.println("Model not exist, building new one");
+        }
 
-        ComputationGraph model = new ComputationGraph(conf);
-        model.init();
+        if ( modelExist ) {
+            System.out.println("Reloading existing model");
+            model = ModelSerializer.restoreComputationGraph(modelSave);
+        }
+        else {
+            ComputationGraphConfiguration conf = new NeuralNetConfiguration.Builder()
+                    .seed(seed)
+                    .updater(new Adam(learningRate))
+                    .weightInit(WeightInit.XAVIER)
+                    .graphBuilder()
+                    .setInputTypes(InputType.convolutional(height, width, nChannels))   //This line is used so you no need to specify .nIn() in every layer
+                    .addInputs("input")
+                    .addLayer("L1",new ConvolutionLayer.Builder()
+                            .nIn(nChannels)
+                            .nOut(16)    //Number of Filters
+                            .activation(Activation.RELU)
+                            .kernelSize(3, 3)
+                            .stride(1, 1)
+                            .build(), "input")
+                    .addLayer( "L2", new SubsamplingLayer.Builder()
+                            .kernelSize(2, 2)
+                            .stride(2, 2)
+                            .poolingType(SubsamplingLayer.PoolingType.MAX)
+                            .build(), "L1")
+                    .addLayer( "L3", new DenseLayer.Builder()
+                            .nOut(50)
+                            .activation(Activation.RELU)
+                            .build(), "L2")
+                    .addLayer( "L4", new OutputLayer.Builder()
+                            .nOut(nClasses)
+                            .activation(Activation.SOFTMAX)
+                            .lossFunction(LossFunctions.LossFunction.MCXENT)
+                            .build(), "L3")
+                    .setOutputs("L4")
+                    .backpropType(BackpropType.Standard)
+                    .build();
+
+            model = new ComputationGraph(conf);
+            model.init();
+        }
+
+
 
         model.setListeners(new ScoreIterationListener(10));
+        System.out.println(model.summary());
 
-        model.fit(trainIter, nEpoch);
+        StatsStorage storage = new InMemoryStatsStorage();
+        UIServer server = UIServer.getInstance();
+        server.attach(storage);
+        model.setListeners(new StatsListener(storage, 10));
+
+        for (int i = 0; i < nEpoch; i++) {
+            model.fit(trainIter);
+
+            System.out.println("Completed epoch " + i);
+            Evaluation eval = model.evaluate(testIter);
+            System.out.println(eval.stats());
+        }
 
         Evaluation evalTrain = model.evaluate(trainIter);
         Evaluation evalTest = model.evaluate(testIter);
 
         System.out.println("Train Evaluation:\n" + evalTrain.stats());
         System.out.println("Test Evaluation:\n" + evalTest.stats());
+
+
+
+
+        System.out.println("******SAVE TRAINED MODEL******");
+        // Where to save model
+        String resourcePath = new ClassPathResource("").getURL().getPath().split("/target/classes")[0] + "/src/main/resources/";
+        File locationToSave = new File( resourcePath + "AvNA/trained_AvNA_model.zip" );
+        System.out.println(locationToSave.toString());
+        locationToSave.getParentFile().mkdirs();
+        locationToSave.createNewFile();
+
+        // boolean save Updater
+        boolean saveUpdater = false;
+
+        // ModelSerializer needs modelname, saveUpdater, Location
+        ModelSerializer.writeModel(model,locationToSave,saveUpdater);
+
+        System.out.println("******PROGRAM IS FINISHED PLEASE CLOSE******");
     }
 }
