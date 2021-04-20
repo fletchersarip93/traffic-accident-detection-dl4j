@@ -1,3 +1,4 @@
+/src/main/resources/CarAccidentData/AvNA/**/*.jpg
 /src/main/resources/CarAccidentData/ProcessedData/extracted_frames2/**/*.jpg
 /src/main/resources/CarAccidentData/ProcessedData/videos_labels2/*.csv
 /src/main/resources/CarAccidentData/ProcessedData/extracted_frames/**/*.jpg

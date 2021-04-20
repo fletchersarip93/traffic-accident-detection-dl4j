@@ -171,7 +171,7 @@ public class VideoFrameClassifierModified2 {
         labelMap.put(1, "Accident");
         Evaluation evaluation = new Evaluation(labelMap);
 
-        DataSetIterator testData = getDataSetIterator(outputDirectory, testStartIdx, nExamples, 10);
+        DataSetIterator testData = getDataSetIterator(outputDirectory, testStartIdx, nExamples, 2);
         while(testData.hasNext()) {
             DataSet dsTest = testData.next();
             INDArray predicted = net.output(dsTest.getFeatures(), false);
